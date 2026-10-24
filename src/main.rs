@@ -318,6 +318,17 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Desktop tab row placement: "top" or "bottom".
 # tab_bar_position = "top"
 
+# Desktop tab look: "line" (one row) or "card" (a three-row bordered card with
+# the label on the top border and the agent status and tab_detail_token inside).
+# tab_style = "line"
+
+# Cells of padding on each side of a tab label.
+# tab_padding = 2
+
+# Pane metadata token (set with `herdr pane report-metadata --token NAME=VALUE`)
+# shown after the status inside a card tab. Empty shows the status only.
+# tab_detail_token = ""
+
 # Ordered status entries at the right edge of the desktop tab bar.
 # Supported types: zoom, hostname, datetime, text, and command.
 # Hostname, datetime, and command entries resolve on the Herdr server.

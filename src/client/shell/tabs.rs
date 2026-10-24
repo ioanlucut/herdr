@@ -1,6 +1,8 @@
 use super::*;
 
 const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
+// Text cells inside a card tab at most, so one long TLDR does not push every other tab away
+const CARD_TEXT: u16 = 60;
 const MIN_TAB_STRIP_WIDTH: u16 =
     MIN_TAB_WIDTH + NEW_TAB_WIDTH + TAB_SCROLL_BUTTON_WIDTH.saturating_mul(2);
 
@@ -21,11 +23,27 @@ pub(crate) fn render_tab_bar(
         .iter()
         .filter(|tab| Some(tab.workspace_id.as_str()) == snapshot.focused_workspace_id.as_deref())
         .collect::<Vec<_>>();
+    let card = config.tab_style == crate::config::TabStyleConfig::Card && area.height >= 3;
+    // Controls and the status area sit on the middle row, so they line up with a card's content
+    let row = area.y + area.height / 2;
+    let details = tabs
+        .iter()
+        .map(|tab| card.then(|| tab_detail(tab, snapshot, config)))
+        .collect::<Vec<_>>();
     let desired_widths = tabs
         .iter()
-        .map(|tab| {
-            let label = tab_label(tab);
-            display_width(&label).saturating_add(4).max(MIN_TAB_WIDTH)
+        .zip(&details)
+        .map(|(tab, detail)| match detail {
+            // Two border cells and the padding around the longer of the label (with a space on
+            // each side of it on the top border) and the detail, the text capped at CARD_TEXT
+            Some(detail) => (display_width(&tab_label(tab)) + 2)
+                .max(display_width(detail))
+                .min(CARD_TEXT)
+                .saturating_add(config.tab_padding.saturating_mul(2) + 2)
+                .max(MIN_TAB_WIDTH),
+            None => display_width(&tab_label(tab))
+                .saturating_add(config.tab_padding.saturating_mul(2))
+                .max(MIN_TAB_WIDTH),
         })
         .collect::<Vec<_>>();
     let content = tab_bar_content_area(snapshot, area);
@@ -63,14 +81,14 @@ pub(crate) fn render_tab_bar(
     let tab_right = if overflow && mouse_chrome {
         hits.tab_scroll_left = Rect::new(
             content.x,
-            content.y,
+            row,
             TAB_SCROLL_BUTTON_WIDTH.min(content.width),
             1,
         );
         put_text(
             buffer,
             hits.tab_scroll_left.x,
-            content.y,
+            row,
             hits.tab_scroll_left.width,
             " < ",
             Style::default()
@@ -99,30 +117,35 @@ pub(crate) fn render_tab_bar(
         if width == 0 {
             break;
         }
-        let rect = Rect::new(x, area.y, width, 1);
-        let style = if tab.focused {
-            let base = Style::default()
-                .fg(panel_contrast_fg(palette))
-                .bg(palette.accent);
-            if tab.custom_label {
-                base.add_modifier(Modifier::BOLD)
-            } else {
-                base
-            }
-        } else if tab.custom_label {
-            Style::default().fg(palette.overlay1).bg(palette.surface0)
+        // The tab spans every tab bar row, so a click on its detail row selects it too
+        let rect = Rect::new(x, area.y, width, area.height);
+        if let Some(detail) = &details[index] {
+            draw_card(buffer, rect, tab, &name, detail, config);
         } else {
-            Style::default().fg(palette.overlay0).bg(palette.surface0)
-        };
-        let padding = width.saturating_sub(display_width(&name));
-        let left = padding / 2;
-        let text = format!(
-            "{empty:left$}{name}{empty:right_padding$}",
-            empty = "",
-            left = left as usize,
-            right_padding = padding.saturating_sub(left) as usize,
-        );
-        put_text(buffer, rect.x, rect.y, rect.width, &text, style);
+            let style = if tab.focused {
+                let base = Style::default()
+                    .fg(panel_contrast_fg(palette))
+                    .bg(palette.accent);
+                if tab.custom_label {
+                    base.add_modifier(Modifier::BOLD)
+                } else {
+                    base
+                }
+            } else if tab.custom_label {
+                Style::default().fg(palette.overlay1).bg(palette.surface0)
+            } else {
+                Style::default().fg(palette.overlay0).bg(palette.surface0)
+            };
+            let padding = width.saturating_sub(display_width(&name));
+            let left = padding / 2;
+            let text = format!(
+                "{empty:left$}{name}{empty:right_padding$}",
+                empty = "",
+                left = left as usize,
+                right_padding = padding.saturating_sub(left) as usize,
+            );
+            put_text(buffer, rect.x, rect.y, rect.width, &text, style);
+        }
         hits.tabs.push((rect, tab.tab_id.clone()));
         first_visible.get_or_insert(index);
         last_visible = Some(index);
@@ -133,12 +156,12 @@ pub(crate) fn render_tab_bar(
     }
 
     if overflow && mouse_chrome {
-        hits.tab_scroll_right = Rect::new(tab_right, area.y, TAB_SCROLL_BUTTON_WIDTH, 1);
+        hits.tab_scroll_right = Rect::new(tab_right, row, TAB_SCROLL_BUTTON_WIDTH, 1);
         let can_scroll_right = *tab_scroll < max_scroll;
         put_text(
             buffer,
             hits.tab_scroll_right.x,
-            area.y,
+            row,
             hits.tab_scroll_right.width,
             " > ",
             Style::default()
@@ -151,7 +174,7 @@ pub(crate) fn render_tab_bar(
         );
         hits.new_tab = Rect::new(
             hits.tab_scroll_right.right(),
-            area.y,
+            row,
             content
                 .right()
                 .saturating_sub(hits.tab_scroll_right.right())
@@ -161,7 +184,7 @@ pub(crate) fn render_tab_bar(
     } else if mouse_chrome {
         hits.new_tab = Rect::new(
             x.min(content.right()),
-            area.y,
+            row,
             content.right().saturating_sub(x).min(NEW_TAB_WIDTH),
             1,
         );
@@ -170,7 +193,7 @@ pub(crate) fn render_tab_bar(
         put_text(
             buffer,
             hits.new_tab.x,
-            area.y,
+            row,
             hits.new_tab.width,
             " + ",
             Style::default().fg(palette.overlay1).bg(palette.panel_bg),
@@ -186,7 +209,7 @@ pub(crate) fn render_tab_bar(
         put_text(
             buffer,
             ellipsis_x,
-            area.y,
+            row,
             u16::from(ellipsis_x < content.right()),
             "…",
             Style::default().fg(palette.overlay0),
@@ -201,7 +224,7 @@ pub(crate) fn render_tab_bar(
         put_text(
             buffer,
             ellipsis_x,
-            area.y,
+            row,
             u16::from(ellipsis_x >= content.x && ellipsis_x < content.right()),
             "…",
             Style::default().fg(palette.overlay0),
@@ -213,7 +236,7 @@ pub(crate) fn render_tab_bar(
             put_text(
                 buffer,
                 indicator_x.min(content.right().saturating_sub(1)),
-                area.y,
+                row,
                 1,
                 "│",
                 Style::default().fg(palette.accent),
@@ -240,8 +263,14 @@ fn tab_bar_status_area(snapshot: &ClientShellSnapshot, area: Rect) -> Option<Rec
         return None;
     }
     let reserved = width.saturating_add(1);
-    (area.width.saturating_sub(reserved) >= MIN_TAB_STRIP_WIDTH)
-        .then(|| Rect::new(area.right().saturating_sub(width), area.y, width, 1))
+    (area.width.saturating_sub(reserved) >= MIN_TAB_STRIP_WIDTH).then(|| {
+        Rect::new(
+            area.right().saturating_sub(width),
+            area.y + area.height / 2,
+            width,
+            1,
+        )
+    })
 }
 
 fn tab_bar_content_area(snapshot: &ClientShellSnapshot, area: Rect) -> Rect {
@@ -369,6 +398,156 @@ fn max_tab_scroll(widths: &[u16], available: u16) -> usize {
         start -= 1;
     }
     start
+}
+
+// A card's content row: the status glyph, then the configured token of the tab's focused agent
+// (any agent of the tab when none is focused), or the status word when the token is unset. Only
+// the agents of one tab are scanned, and only for card tabs
+fn tab_detail(
+    tab: &ClientShellTab,
+    snapshot: &ClientShellSnapshot,
+    config: &ClientShellConfig,
+) -> String {
+    // A tab without an agent has nothing to report, so its card stays empty
+    if !snapshot
+        .agents
+        .iter()
+        .any(|agent| agent.tab_id == tab.tab_id && agent.agent.is_some())
+    {
+        return String::new();
+    }
+    let icon = super::status_icon(tab.agent_status, config.status_indicators);
+    let status = format!("{icon} {}", super::status_text(tab.agent_status));
+    if config.tab_detail_token.is_empty() {
+        return status;
+    }
+    let value = snapshot
+        .agents
+        .iter()
+        .filter(|agent| agent.tab_id == tab.tab_id && agent.agent.is_some())
+        .max_by_key(|agent| agent.focused)
+        .and_then(|agent| {
+            agent
+                .tokens
+                .iter()
+                .find(|(name, _)| *name == config.tab_detail_token)
+                .map(|(_, value)| value.as_str())
+        });
+    match value {
+        // The glyph already says the status, so the TLDR gets the whole line
+        Some(value) if !value.is_empty() => format!("{icon} {value}"),
+        _ => status,
+    }
+}
+
+// A card tab: the label on the rounded top border, the part before ` · ` (the project) in bold,
+// the status glyph in its status color and the detail inside, an empty bottom border. The border
+// takes the accent on the focused tab
+fn draw_card(
+    buffer: &mut Buffer,
+    rect: Rect,
+    tab: &ClientShellTab,
+    label: &str,
+    detail: &str,
+    config: &ClientShellConfig,
+) {
+    let palette = &config.palette;
+    let (border, text) = if tab.focused {
+        (palette.accent, palette.text)
+    } else {
+        (palette.overlay0, palette.overlay1)
+    };
+    let base = Style::default().bg(palette.panel_bg);
+    let border_style = base.fg(border);
+    let width = rect.width;
+    let pad = config.tab_padding.min(width.saturating_sub(2) / 2);
+    let inner = width.saturating_sub(2 + pad * 2);
+    let y = rect.y;
+
+    // Top border: ╭─ PROJECT · task ─╮
+    let rule = |n: u16| "\u{2500}".repeat(n.into());
+    put_text(
+        buffer,
+        rect.x,
+        y,
+        width,
+        &format!("\u{256d}{}\u{256e}", rule(width.saturating_sub(2))),
+        border_style,
+    );
+    let label = crate::ui::truncate_end(label, inner.saturating_sub(2).into());
+    let (project, task) = label
+        .split_once(" \u{b7} ")
+        .map_or((label.as_str(), None), |(p, t)| (p, Some(t)));
+    let mut x = rect.x + 1 + pad;
+    if inner >= 3 {
+        put_text(buffer, x, y, 1, " ", base);
+        x += 1;
+        let style = base.fg(text).add_modifier(Modifier::BOLD);
+        put_text(buffer, x, y, display_width(project), project, style);
+        x += display_width(project);
+        if let Some(task) = task {
+            let rest = format!(" \u{b7} {task}");
+            put_text(buffer, x, y, display_width(&rest), &rest, base.fg(text));
+            x += display_width(&rest);
+        }
+        put_text(buffer, x, y, 1, " ", base);
+    }
+
+    // Content: │ ◐ TLDR │
+    let mid = y + 1;
+    put_text(
+        buffer,
+        rect.x,
+        mid,
+        width,
+        &format!(
+            "\u{2502}{:w$}\u{2502}",
+            "",
+            w = width.saturating_sub(2).into()
+        ),
+        border_style,
+    );
+    let detail = crate::ui::truncate_end(detail, inner.into());
+    if detail.is_empty() {
+        put_text(
+            buffer,
+            rect.x,
+            y + 2,
+            width,
+            &format!("\u{2570}{}\u{256f}", rule(width.saturating_sub(2))),
+            border_style,
+        );
+        return;
+    }
+    let (icon, rest) = detail.split_once(' ').unwrap_or((detail.as_str(), ""));
+    let x = rect.x + 1 + pad;
+    put_text(
+        buffer,
+        x,
+        mid,
+        display_width(icon),
+        icon,
+        base.fg(super::status_color(tab.agent_status, palette)),
+    );
+    let rest = format!(" {rest}");
+    put_text(
+        buffer,
+        x + display_width(icon),
+        mid,
+        inner.saturating_sub(display_width(icon)),
+        &rest,
+        base.fg(text),
+    );
+
+    // Bottom border
+    put_text(
+        buffer,
+        rect.x,
+        y + 2,
+        width,
+        &format!("\u{2570}{}\u{256f}", rule(width.saturating_sub(2))),
+        border_style,
+    );
 }
 
 fn tab_label(tab: &ClientShellTab) -> String {

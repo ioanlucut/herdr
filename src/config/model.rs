@@ -880,6 +880,17 @@ pub enum TabBarPositionConfig {
     Bottom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TabStyleConfig {
+    /// One row per tab: the label on a filled block.
+    #[default]
+    Line,
+    /// A bordered card three rows high: the label on the top border, the agent status and
+    /// `tab_detail_token` inside.
+    Card,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaneBordersConfig {
     #[default]
@@ -984,6 +995,13 @@ pub struct UiConfig {
     pub hide_tab_bar_when_single_tab: bool,
     /// Desktop tab row placement. Default: top.
     pub tab_bar_position: TabBarPositionConfig,
+    /// Desktop tab look: line or a three-row bordered card. Default: line.
+    pub tab_style: TabStyleConfig,
+    /// Cells of padding on each side of a tab label. Default: 2.
+    pub tab_padding: u16,
+    /// Pane metadata token shown after the status inside a card tab, read from the tab's
+    /// focused agent. Empty shows the status only. Default: empty.
+    pub tab_detail_token: String,
     /// Ordered entries shown at the right edge of the desktop tab row. Empty by default.
     pub tab_bar_right: Vec<TabBarRightEntryConfig>,
     /// Text inserted between visible right-side tab bar entries. Default: one space.
@@ -1220,6 +1238,9 @@ impl Default for UiConfig {
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
             tab_bar_position: TabBarPositionConfig::Top,
+            tab_style: TabStyleConfig::Line,
+            tab_padding: 2,
+            tab_detail_token: String::new(),
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
@@ -1542,6 +1563,9 @@ pane_gaps = true
 show_agent_labels_on_pane_borders = true
 hide_tab_bar_when_single_tab = true
 tab_bar_position = "bottom"
+tab_style = "card"
+tab_padding = 1
+tab_detail_token = "tldr"
 tab_bar_right = [
   { type = "zoom" },
   { type = "hostname" },
@@ -1559,6 +1583,9 @@ tab_bar_right_separator = " · "
         assert!(config.ui.show_agent_labels_on_pane_borders);
         assert!(config.ui.hide_tab_bar_when_single_tab);
         assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
+        assert_eq!(config.ui.tab_style, TabStyleConfig::Card);
+        assert_eq!(config.ui.tab_padding, 1);
+        assert_eq!(config.ui.tab_detail_token, "tldr");
         assert_eq!(config.ui.tab_bar_right.len(), 5);
         assert!(matches!(
             config.ui.tab_bar_right[1],

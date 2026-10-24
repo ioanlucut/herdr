@@ -332,7 +332,9 @@ impl ClientShellState {
                 &self.config.palette,
             )
         };
-        if mode_bar == Some(layout.tab_bar) {
+        // The mode bar takes the last row of a bottom tab bar, which may span two rows
+        if mode_bar.is_some_and(|bar| !layout.tab_bar.is_empty() && bar.intersects(layout.tab_bar))
+        {
             self.hits.tabs.clear();
             self.hits.new_tab = Rect::default();
             self.hits.tab_scroll_left = Rect::default();

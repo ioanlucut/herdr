@@ -121,6 +121,9 @@ impl ClientShellConfig {
             mobile_width_threshold: config.ui.mobile_width_threshold,
             tab_bar_position: config.ui.tab_bar_position,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
+            tab_style: config.ui.tab_style,
+            tab_padding: config.ui.tab_padding,
+            tab_detail_token: config.ui.tab_detail_token.clone(),
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
@@ -348,6 +351,9 @@ impl ClientShellConfig {
                 self.mobile_width_threshold = ui.mobile_width_threshold;
                 self.tab_bar_position = ui.tab_bar_position;
                 self.hide_tab_bar_when_single_tab = ui.hide_tab_bar_when_single_tab;
+                self.tab_style = ui.tab_style;
+                self.tab_padding = ui.tab_padding;
+                self.tab_detail_token = ui.tab_detail_token.clone();
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
                 self.agent_panel_sort = ui.agent_panel_sort;
@@ -416,7 +422,13 @@ impl ClientShellConfig {
         .min(cols.saturating_sub(1));
         let main = Rect::new(sidebar_width, 0, cols.saturating_sub(sidebar_width), rows);
         let show_tab_bar = rows > 1 && !(self.hide_tab_bar_when_single_tab && tab_count == 1);
-        let tab_height = u16::from(show_tab_bar);
+        // A card tab bar is three rows high, but never takes the last pane row; one too short
+        // for a card falls back to the line look (tabs.rs)
+        let tab_height = match (show_tab_bar, self.tab_style) {
+            (false, _) => 0,
+            (true, crate::config::TabStyleConfig::Line) => 1,
+            (true, crate::config::TabStyleConfig::Card) => 3.min(rows - 1),
+        };
         let (tab_bar, pane_surface) = match self.tab_bar_position {
             TabBarPositionConfig::Top => (
                 Rect::new(main.x, 0, main.width, tab_height),
