@@ -427,7 +427,7 @@ impl ClientShellConfig {
         let tab_height = match (show_tab_bar, self.tab_style) {
             (false, _) => 0,
             (true, crate::config::TabStyleConfig::Line) => 1,
-            (true, crate::config::TabStyleConfig::Card) => 3.min(rows - 1),
+            (true, crate::config::TabStyleConfig::Card) => 4.min(rows - 1),
         };
         let (tab_bar, pane_surface) = match self.tab_bar_position {
             TabBarPositionConfig::Top => (

@@ -337,7 +337,7 @@ Separators appear only between visible entries. Set `tab_bar_right_separator = "
 
 ### Card tabs
 
-Set `tab_style = "card"` to draw every desktop tab as a three-row bordered card. The label sits on the top border, with the part before ` · ` in bold. Inside, the card shows the agent's status glyph in its status color, then the value of the pane metadata token named by `tab_detail_token`, read from the tab's focused agent. Only the border marks the focused card, in the accent color:
+Set `tab_style = "card"` to draw every desktop tab as a four-row bordered card. The label sits on the top border, with the part before ` · ` in bold. Inside, the card wraps the value of the pane metadata token named by `tab_detail_token`, read from the tab's focused agent, across two rows. Neither content row adds a status glyph. Only the border marks the focused card, in the accent color:
 
 ```toml
 [ui]
@@ -352,11 +352,12 @@ herdr pane report-metadata "$HERDR_PANE_ID" --source my-tool --token "tldr=Fix t
 
 ```text
 ╭─ CFG · fix login ───────────╮ ╭─ HA · garage ─╮
-│ ◐ Fix the login redirect    │ │ × blocked     │
+│ Fix the login redirect      │ │ blocked       │
+│                             │ │               │
 ╰─────────────────────────────╯ ╰───────────────╯
 ```
 
-An empty or unset `tab_detail_token` shows the status word. A tab without an agent keeps an empty card. Card text is capped at 60 cells. `tab_padding` sets the cells on each side of every label for both styles. A tab bar too short for three rows keeps line tabs. A click anywhere on a card selects its tab.
+An empty or unset `tab_detail_token` shows the status word. A tab without an agent keeps an empty card. Card width is capped at 60 text cells; content wraps at word boundaries across two rows and excess text is clipped. `tab_padding` sets the cells on each side of every label for both styles. A tab bar too short for four rows keeps line tabs. A click anywhere on a card selects its tab.
 
 ### Outer terminal window title
 

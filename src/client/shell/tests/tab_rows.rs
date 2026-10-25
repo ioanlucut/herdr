@@ -98,17 +98,17 @@ fn default_config_keeps_line_tabs_with_two_cells_of_padding() {
 }
 
 #[test]
-fn card_tab_bar_takes_three_rows_at_the_top_or_the_bottom() {
+fn card_tab_bar_takes_four_rows_at_the_top_or_the_bottom() {
     let config = card_config("tldr");
     let layout = config.layout(106, 20, false, 1, 26);
-    assert_eq!((layout.tab_bar.y, layout.tab_bar.height), (0, 3));
-    assert_eq!((layout.pane_surface.y, layout.pane_surface.height), (3, 17));
+    assert_eq!((layout.tab_bar.y, layout.tab_bar.height), (0, 4));
+    assert_eq!((layout.pane_surface.y, layout.pane_surface.height), (4, 16));
 
     let mut bottom = card_config("tldr");
     bottom.tab_bar_position = crate::config::TabBarPositionConfig::Bottom;
     let layout = bottom.layout(106, 20, false, 1, 26);
-    assert_eq!((layout.tab_bar.y, layout.tab_bar.height), (17, 3));
-    assert_eq!(layout.pane_surface.height, 17);
+    assert_eq!((layout.tab_bar.y, layout.tab_bar.height), (16, 4));
+    assert_eq!(layout.pane_surface.height, 16);
 }
 
 #[test]
@@ -122,10 +122,12 @@ fn card_tab_bar_never_takes_the_last_pane_row() {
 #[test]
 fn a_bar_too_short_for_cards_falls_back_to_line_tabs() {
     let mut state = card_state("tldr");
-    let frame = state.compose(106, 3).expect("short card bar");
-    let top = row_text(&frame, 0);
-    assert!(!top.contains('\u{256d}'), "{top:?}");
-    assert!(top.contains("CFG \u{b7} fix login"), "{top:?}");
+    for height in [3, 4] {
+        let frame = state.compose(106, height).expect("short card bar");
+        let top = row_text(&frame, 0);
+        assert!(!top.contains('\u{256d}'), "{top:?}");
+        assert!(top.contains("CFG \u{b7} fix login"), "{top:?}");
+    }
 }
 
 #[test]
@@ -135,21 +137,21 @@ fn card_shows_the_label_on_the_border_and_the_tldr_inside() {
     let (top, mid, bottom) = (
         row_text(&frame, 0),
         row_text(&frame, 1),
-        row_text(&frame, 2),
+        row_text(&frame, 3),
     );
     assert!(
         top.contains("\u{256d}\u{2500} CFG \u{b7} fix login \u{2500}"),
         "{top:?}"
     );
     assert!(
-        mid.contains("\u{2502} \u{25d0} Fix the login redirect \u{2502}"),
+        mid.contains("\u{2502} Fix the login redirect \u{2502}"),
         "{mid:?}"
     );
     assert!(
         bottom.contains('\u{2570}') && bottom.contains('\u{256f}'),
         "{bottom:?}"
     );
-    assert!(row_text(&frame, 3).contains("LIVE"));
+    assert!(row_text(&frame, 4).contains("LIVE"));
 }
 
 #[test]
@@ -183,7 +185,7 @@ fn only_the_border_marks_the_focused_card() {
     assert_eq!(cell(&frame, other.x, 1).fg, grey);
     for rect in [focused, other] {
         for x in rect.x..rect.right() {
-            for y in 0..3 {
+            for y in 0..4 {
                 assert_eq!(cell(&frame, x, y).bg, panel, "fill at {x},{y}");
             }
         }
@@ -211,7 +213,10 @@ fn card_without_a_token_shows_the_status_word() {
         let mut state = card_state(token);
         let frame = state.compose(106, 20).expect("status-only card");
         let mid = row_text(&frame, 1);
-        assert!(mid.contains("\u{25d0} working"), "{token:?}: {mid:?}");
+        assert!(
+            mid.contains("working") && !mid.contains('\u{25d0}'),
+            "{token:?}: {mid:?}"
+        );
     }
 }
 
@@ -233,7 +238,7 @@ fn card_without_an_agent_stays_empty() {
 }
 
 #[test]
-fn a_long_tldr_is_capped_and_cut_inside_the_card() {
+fn a_long_tldr_wraps_inside_the_card_without_a_status_glyph() {
     let mut state = card_state("tldr");
     replace_snapshot(&mut state, |projected| {
         projected.agents = vec![agent(
@@ -252,7 +257,41 @@ fn a_long_tldr_is_capped_and_cut_inside_the_card() {
         .skip(usize::from(rect.x))
         .take(usize::from(rect.width))
         .collect();
-    assert!(mid.trim_end().ends_with("\u{2026} \u{2502}"), "{mid:?}");
+    assert!(mid.contains("word word"), "{mid:?}");
+    assert!(row_text(&frame, 2).contains("word word"));
+    assert!(!mid.contains('\u{25d0}'));
+}
+
+#[test]
+fn a_goal_wraps_at_a_word_boundary_without_losing_unicode() {
+    let mut state = card_state("tldr");
+    replace_snapshot(&mut state, |projected| {
+        projected.tabs[0].label = "◐ CFG · login".into();
+        projected.agents = vec![agent(
+            "tab_1",
+            "pane_1",
+            true,
+            &[(
+                "tldr",
+                "Review the login redirect and preserve all existing behavior 然后验证",
+            )],
+        )];
+    });
+    let frame = state.compose(200, 20).expect("wrapped goal");
+    assert!(row_text(&frame, 0).contains('◐'));
+    let first = row_text(&frame, 1);
+    let second = row_text(&frame, 2);
+    assert!(
+        first.contains("Review the login redirect and preserve all existing behavior"),
+        "{first:?}"
+    );
+    assert!(!first.contains('然'), "{first:?}");
+    let compact: String = second.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(compact.contains("然后验证"), "{second:?}");
+    // The sidebar has its own status glyph; only inspect the tab strip.
+    let first = first.split_once('│').expect("sidebar divider").1;
+    let second = second.split_once('│').expect("sidebar divider").1;
+    assert!(!first.contains('◐') && !second.contains('◐'));
 }
 
 #[test]
@@ -262,7 +301,7 @@ fn a_click_anywhere_on_a_card_selects_the_tab() {
     state.compose(106, 20).expect("two cards");
     let (rect, tab_id) = state.hits.tabs[1].clone();
     assert_eq!(tab_id, "tab_2");
-    assert_eq!(rect.height, 3);
+    assert_eq!(rect.height, 4);
     let click = |kind| {
         RawInputEvent::Mouse(MouseEvent {
             kind,
@@ -290,7 +329,7 @@ fn a_click_anywhere_on_a_card_selects_the_tab() {
 fn controls_sit_on_the_middle_card_row() {
     let mut state = card_state("tldr");
     state.compose(106, 20).expect("card tab bar");
-    assert_eq!(state.hits.new_tab.y, 1);
+    assert_eq!(state.hits.new_tab.y, 2);
 }
 
 #[test]

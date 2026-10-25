@@ -886,8 +886,8 @@ pub enum TabStyleConfig {
     /// One row per tab: the label on a filled block.
     #[default]
     Line,
-    /// A bordered card three rows high: the label on the top border, the agent status and
-    /// `tab_detail_token` inside.
+    /// A bordered card four rows high: the label on the top border and
+    /// `tab_detail_token` wrapped across two content rows, without a status glyph.
     Card,
 }
 
@@ -995,11 +995,11 @@ pub struct UiConfig {
     pub hide_tab_bar_when_single_tab: bool,
     /// Desktop tab row placement. Default: top.
     pub tab_bar_position: TabBarPositionConfig,
-    /// Desktop tab look: line or a three-row bordered card. Default: line.
+    /// Desktop tab look: line or a four-row bordered card. Default: line.
     pub tab_style: TabStyleConfig,
     /// Cells of padding on each side of a tab label. Default: 2.
     pub tab_padding: u16,
-    /// Pane metadata token shown after the status inside a card tab, read from the tab's
+    /// Pane metadata token wrapped across two content rows inside a card tab, read from the tab's
     /// focused agent. Empty shows the status only. Default: empty.
     pub tab_detail_token: String,
     /// Ordered entries shown at the right edge of the desktop tab row. Empty by default.

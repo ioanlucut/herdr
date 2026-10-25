@@ -8,7 +8,7 @@ Branch `feat/tab-bar-rows` is upstream's latest release tag plus these commits:
 
 | Key (`[ui]`) | Default | Effect |
 |---|---|---|
-| `tab_style` | `"line"` | `"card"` draws each tab as a three-row bordered card. The label is on the top border, and the part before ` · ` is bold. The status glyph and the `tab_detail_token` value are inside. Only the border marks the focused card. |
+| `tab_style` | `"line"` | `"card"` draws each tab as a four-row bordered card. The label is on the top border, and the part before ` · ` is bold. The status glyph and the `tab_detail_token` value are inside. Only the border marks the focused card. |
 | `tab_padding` | `2` | Cells on each side of a tab label, for both styles. |
 | `tab_detail_token` | `""` | The pane metadata token shown inside a card, read from the tab's focused agent. |
 

@@ -1019,7 +1019,7 @@
           "key": "ui.tab_style",
           "type": "enum",
           "default": "\"line\"",
-          "description": "Desktop tab look. line draws each tab as one filled row. card draws a three-row bordered card: the label on the top border with the part before \" · \" in bold, the agent status glyph and the ui.tab_detail_token value inside, and the accent on the focused card's border. A tab bar too short for cards keeps line tabs.",
+          "description": "Desktop tab look. line draws each tab as one filled row. card draws a four-row bordered card: the label on the top border with the part before \" · \" in bold, the ui.tab_detail_token value wrapped across two content rows without a status glyph, and the accent on the focused card's border. A tab bar too short for cards keeps line tabs.",
           "values": [
             "line",
             "card"
@@ -1035,7 +1035,7 @@
           "key": "ui.tab_detail_token",
           "type": "string",
           "default": "\"\"",
-          "description": "Pane metadata token shown after the status glyph inside a card tab, read from the tab's focused agent. Set it with herdr pane report-metadata --token NAME=VALUE. Empty or unset shows the status word."
+          "description": "Pane metadata token wrapped across two content rows inside a card tab, read from the tab's focused agent. Set it with herdr pane report-metadata --token NAME=VALUE. Empty or unset shows the status word."
         },
         {
           "key": "ui.tab_bar_right",

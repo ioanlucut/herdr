@@ -23,7 +23,7 @@ pub(crate) fn render_tab_bar(
         .iter()
         .filter(|tab| Some(tab.workspace_id.as_str()) == snapshot.focused_workspace_id.as_deref())
         .collect::<Vec<_>>();
-    let card = config.tab_style == crate::config::TabStyleConfig::Card && area.height >= 3;
+    let card = config.tab_style == crate::config::TabStyleConfig::Card && area.height >= 4;
     // Controls and the status area sit on the middle row, so they line up with a card's content
     let row = area.y + area.height / 2;
     let details = tabs
@@ -400,7 +400,7 @@ fn max_tab_scroll(widths: &[u16], available: u16) -> usize {
     start
 }
 
-// A card's content row: the status glyph, then the configured token of the tab's focused agent
+// A card's content: the configured token of the tab's focused agent
 // (any agent of the tab when none is focused), or the status word when the token is unset. Only
 // the agents of one tab are scanned, and only for card tabs
 fn tab_detail(
@@ -416,8 +416,7 @@ fn tab_detail(
     {
         return String::new();
     }
-    let icon = super::status_icon(tab.agent_status, config.status_indicators);
-    let status = format!("{icon} {}", super::status_text(tab.agent_status));
+    let status = super::status_text(tab.agent_status).to_string();
     if config.tab_detail_token.is_empty() {
         return status;
     }
@@ -434,14 +433,13 @@ fn tab_detail(
                 .map(|(_, value)| value.as_str())
         });
     match value {
-        // The glyph already says the status, so the TLDR gets the whole line
-        Some(value) if !value.is_empty() => format!("{icon} {value}"),
+        Some(value) if !value.is_empty() => value.to_string(),
         _ => status,
     }
 }
 
 // A card tab: the label on the rounded top border, the part before ` · ` (the project) in bold,
-// the status glyph in its status color and the detail inside, an empty bottom border. The border
+// two wrapped detail rows inside, and an empty bottom border. The border
 // takes the accent on the focused tab
 fn draw_card(
     buffer: &mut Buffer,
@@ -493,57 +491,30 @@ fn draw_card(
         put_text(buffer, x, y, 1, " ", base);
     }
 
-    // Content: │ ◐ TLDR │
-    let mid = y + 1;
-    put_text(
-        buffer,
-        rect.x,
-        mid,
-        width,
-        &format!(
-            "\u{2502}{:w$}\u{2502}",
-            "",
-            w = width.saturating_sub(2).into()
-        ),
-        border_style,
-    );
-    let detail = crate::ui::truncate_end(detail, inner.into());
-    if detail.is_empty() {
+    // Two content rows, without a duplicate status glyph.
+    for row in 1..=2 {
         put_text(
             buffer,
             rect.x,
-            y + 2,
+            y + row,
             width,
-            &format!("\u{2570}{}\u{256f}", rule(width.saturating_sub(2))),
+            &format!("│{:w$}│", "", w = width.saturating_sub(2).into()),
             border_style,
         );
-        return;
     }
-    let (icon, rest) = detail.split_once(' ').unwrap_or((detail.as_str(), ""));
-    let x = rect.x + 1 + pad;
-    put_text(
+    ratatui::widgets::Widget::render(
+        ratatui::widgets::Paragraph::new(detail)
+            .style(base.fg(text))
+            .wrap(ratatui::widgets::Wrap { trim: true }),
+        Rect::new(rect.x + 1 + pad, y + 1, inner, 2),
         buffer,
-        x,
-        mid,
-        display_width(icon),
-        icon,
-        base.fg(super::status_color(tab.agent_status, palette)),
-    );
-    let rest = format!(" {rest}");
-    put_text(
-        buffer,
-        x + display_width(icon),
-        mid,
-        inner.saturating_sub(display_width(icon)),
-        &rest,
-        base.fg(text),
     );
 
     // Bottom border
     put_text(
         buffer,
         rect.x,
-        y + 2,
+        y + 3,
         width,
         &format!("\u{2570}{}\u{256f}", rule(width.saturating_sub(2))),
         border_style,
