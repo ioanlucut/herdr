@@ -1,0 +1,542 @@
+#!/usr/bin/env python3
+"""Drive the fork's real TUI in a private tmux server; see SKILL.md."""
+
+import hashlib
+import html
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[3]
+FEATURES = ("card-content", "focus-navigation", "metadata", "layout")
+GOAL = "Build a bigger two-line herdr tab with hover details and status, then fork"
+SOURCE = "verify-fork"
+
+
+def command(args, env=None, check=True):
+    return subprocess.run(
+        [str(a) for a in args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=check,
+        timeout=30,
+    ).stdout
+
+
+def wait_for(probe, description):
+    until = time.monotonic() + 15
+    while time.monotonic() < until:
+        value = probe()
+        if value:
+            return value
+        time.sleep(0.15)
+    raise AssertionError("timeout: " + description)
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+class Run:
+    def __init__(self, root):
+        self.root = Path(root).resolve()
+        assert self.root.name.startswith("hfv-"), "not a verification run directory"
+        self.record = json.loads((self.root / "run.json").read_text())
+        assert Path(self.record["root"]).resolve() == self.root, (
+            "run ownership mismatch"
+        )
+        self.evidence = self.root / "evidence"
+        # No inherited HERDR_* routing, user plugins, agent credentials, shell startup files,
+        # or tmux options. All child processes receive only this environment.
+        self.env = {
+            "PATH": self.record["path"],
+            "HOME": str(self.root / "home"),
+            "XDG_CONFIG_HOME": str(self.root / "config"),
+            "XDG_STATE_HOME": str(self.root / "state"),
+            "XDG_CACHE_HOME": str(self.root / "cache"),
+            "HERDR_CONFIG_PATH": str(self.root / "config.toml"),
+            "HERDR_ENV": "1",
+            "SHELL": "/bin/sh",
+            "TERM": "xterm-256color",
+            "LANG": "en_US.UTF-8",
+            "LC_ALL": "en_US.UTF-8",
+        }
+
+    def log(self, entry):
+        with (self.evidence / "actions.jsonl").open("a") as file:
+            file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def tmux(self, *args):
+        argv = ["tmux", "-S", str(self.root / "tmux.sock"), *args]
+        self.log({"tmux": argv})
+        return command(argv, self.env)
+
+    def api(self, *args):
+        argv = [self.record["binary"], "--session", "probe", *args]
+        result = subprocess.run(
+            argv, env=self.env, capture_output=True, text=True, timeout=20, check=False
+        )
+        self.log(
+            {
+                "command": argv,
+                "exit": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+        return result.stdout
+
+    def data(self, *args):
+        result = json.loads(self.api(*args))
+        assert "error" not in result, result
+        return result["result"]
+
+    def panes(self):
+        return self.data("pane", "list")["panes"]
+
+    def screen(self):
+        return self.tmux("capture-pane", "-p", "-t", "verify:0.0")
+
+    def visible(self, text):
+        return wait_for(lambda: text in self.screen(), "screen contains " + text)
+
+    def capture(self, name):
+        plain = self.screen()
+        ansi = self.tmux("capture-pane", "-p", "-e", "-t", "verify:0.0")
+        (self.evidence / (name + ".txt")).write_text(plain)
+        (self.evidence / (name + ".ansi")).write_text(ansi)
+        (self.evidence / (name + ".json")).write_text(
+            json.dumps(
+                {"panes": self.panes(), "tabs": self.data("tab", "list")["tabs"]},
+                indent=2,
+            )
+        )
+        # ANSI is the authoritative style evidence; HTML gives a portable visual preview.
+        bold, fg, bg = False, "#ddd", "#111"
+        parts, styles = [], [[]]
+        for part in re.split(r"(\x1b\[[0-9;]*m)", ansi):
+            if not part.startswith("\x1b["):
+                parts.append(
+                    f'<span style="color:{fg};background:{bg};font-weight:{700 if bold else 400}">{html.escape(part)}</span>'
+                )
+                for char in part:
+                    if char == "\n":
+                        styles.append([])
+                    else:
+                        styles[-1].append(
+                            {"char": char, "bold": bold, "fg": fg, "bg": bg}
+                        )
+                continue
+            codes = [int(x or 0) for x in part[2:-1].split(";")]
+            i = 0
+            palette = ("#111", "#c44", "#4a4", "#aa4", "#48c", "#a4a", "#4aa", "#ddd")
+            while i < len(codes):
+                code = codes[i]
+                if code == 0:
+                    bold, fg, bg = False, "#ddd", "#111"
+                elif code in (1, 22):
+                    bold = code == 1
+                elif code in (38, 48) and i + 4 < len(codes) and codes[i + 1] == 2:
+                    color = "#" + "".join(
+                        f"{channel:02x}" for channel in codes[i + 2 : i + 5]
+                    )
+                    if code == 38:
+                        fg = color
+                    else:
+                        bg = color
+                    i += 4
+                elif 30 <= code <= 37:
+                    fg = palette[code - 30]
+                elif 40 <= code <= 47:
+                    bg = palette[code - 40]
+                elif code == 39:
+                    fg = "#ddd"
+                elif code == 49:
+                    bg = "#111"
+                i += 1
+        page = (
+            '<meta charset="utf-8"><style>body{background:#111}pre{font:16px/20px monospace;white-space:pre}</style><pre>'
+            + "".join(parts)
+            + "</pre>"
+        )
+        (self.evidence / (name + ".html")).write_text(page)
+        (self.evidence / (name + ".styles.json")).write_text(json.dumps(styles))
+        return plain
+
+    def report(self, pane, goal=None, state="working"):
+        # These are the public integration entry points, not a fake agent or model call.
+        self.api(
+            "pane",
+            "report-agent",
+            pane,
+            "--source",
+            SOURCE,
+            "--agent",
+            "pi",
+            "--state",
+            state,
+        )
+        if goal is not None:
+            self.api(
+                "pane",
+                "report-metadata",
+                pane,
+                "--source",
+                SOURCE,
+                "--token",
+                "tldr=" + goal,
+            )
+            wait_for(
+                lambda: (
+                    self.data("pane", "get", pane)["pane"]["tokens"].get("tldr") == goal
+                ),
+                "metadata readback",
+            )
+
+    def new_tab(self, label):
+        tab = self.data(
+            "tab",
+            "create",
+            "--workspace",
+            self.workspace,
+            "--label",
+            label,
+            "--cwd",
+            str(self.root / "work"),
+            "--focus",
+        )["tab"]
+        pane = next(p for p in self.panes() if p["tab_id"] == tab["tab_id"])
+        return tab["tab_id"], pane["pane_id"]
+
+    @property
+    def workspace(self):
+        return self.panes()[0]["workspace_id"]
+
+    def doctor(self):
+        assert digest(self.record["binary"]) == self.record["sha256"], (
+            "binary changed since launch"
+        )
+        self.tmux("has-session", "-t", "verify")
+        sessions = self.api("session", "list")
+        assert str(self.root / "config") in sessions, sessions
+        assert self.panes(), "no usable pane"
+        assert not self.data("plugin", "list", "--json")["plugins"], (
+            "unexpected plugins"
+        )
+        screen = self.screen()
+        if (
+            'tab_style = "card"' in (self.root / "config.toml").read_text()
+            and len(screen.splitlines()) >= 5
+        ):
+            assert "╭─" in screen, "card TUI is not visible"
+        self.log({"doctor": "PASS", "binary_sha256": self.record["sha256"]})
+        print("doctor PASS:", self.root, flush=True)
+
+    def drive(self):
+        self.doctor()
+        feature = self.record["feature"]
+        tab, pane = self.new_tab("CFG · verification")
+        self.capture("before")
+        if feature == "card-content":
+            self.report(pane, GOAL)
+            self.visible("status, then fork")
+            lines = self.capture("wrapped").splitlines()
+            assert (
+                "Build a bigger two-line herdr tab with hover details and" in lines[1]
+            )
+            assert "status, then fork" in lines[2]
+            assert "╰─" in lines[3]
+            assert not any(c in "".join(lines[1:3]) for c in "×◐✓○")
+            styles = json.loads((self.evidence / "wrapped.styles.json").read_text())
+            assert styles[0][lines[0].index("CFG")]["bold"], "project is not bold"
+            assert not styles[0][lines[0].index("verification")]["bold"], (
+                "task unexpectedly bold"
+            )
+        elif feature == "focus-navigation":
+            other, _ = self.new_tab("HA · second")
+            self.visible("HA · second")
+            self.api("tab", "focus", tab)
+            wait_for(
+                lambda: (
+                    next(t for t in self.data("tab", "list")["tabs"] if t["focused"])[
+                        "tab_id"
+                    ]
+                    == tab
+                ),
+                "CLI focus",
+            )
+            text = self.capture("cli-focus").splitlines()
+            styles = json.loads((self.evidence / "cli-focus.styles.json").read_text())
+            cfg, ha = text[0].index("CFG"), text[0].index("HA")
+            assert styles[1][cfg - 3]["fg"] != styles[1][ha - 3]["fg"], (
+                "focus border did not change color"
+            )
+            assert len({c["bg"] for line in styles[:4] for c in line}) == 1, (
+                "card background fill changed with focus"
+            )
+            self.tmux("send-keys", "-t", "verify:0.0", "C-b", "n")
+            wait_for(
+                lambda: (
+                    next(t for t in self.data("tab", "list")["tabs"] if t["focused"])[
+                        "tab_id"
+                    ]
+                    == other
+                ),
+                "keyboard next tab",
+            )
+            self.capture("keyboard-focus")
+            for row in (2, 3):
+                line = self.screen().splitlines()[0]
+                column = line.index("CFG") + 1
+                # SGR mouse down/up on each content row, using the visible label's column.
+                self.tmux(
+                    "send-keys",
+                    "-t",
+                    "verify:0.0",
+                    "-l",
+                    f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m",
+                )
+                wait_for(
+                    lambda: (
+                        next(
+                            t for t in self.data("tab", "list")["tabs"] if t["focused"]
+                        )["tab_id"]
+                        == tab
+                    ),
+                    "content-row mouse focus",
+                )
+                self.capture("mouse-row-" + str(row))
+                self.api("tab", "focus", other)
+        elif feature == "metadata":
+            self.report(pane, "Initial login goal")
+            self.visible("Initial login goal")
+            self.capture("initial-token")
+            self.report(pane, "Updated login goal")
+            self.visible("Updated login goal")
+            assert "Initial login goal" not in self.capture("updated-token")
+            self.api(
+                "pane",
+                "report-metadata",
+                pane,
+                "--source",
+                SOURCE,
+                "--clear-token",
+                "tldr",
+            )
+            wait_for(
+                lambda: "Updated login goal" not in self.screen(), "old goal cleared"
+            )
+            self.visible("working")
+            assert "tldr" not in self.data("pane", "get", pane)["pane"].get(
+                "tokens", {}
+            )
+            self.capture("cleared-token")
+            split = self.data("pane", "split", pane, "--direction", "right", "--focus")[
+                "pane"
+            ]["pane_id"]
+            self.report(split, "Focused split goal")
+            self.visible("Focused split goal")
+            self.capture("focused-split")
+            shell, _ = self.new_tab("SH · no agent")
+            self.visible("SH · no agent")
+            text = self.capture("empty-shell").splitlines()
+            col = text[0].index("SH · no agent")
+            left = text[0].rfind("╭", 0, col)
+            right = text[0].find("╮", col)
+            assert all(not row[left + 1 : right].strip() for row in text[1:3]), shell
+        else:
+            self.report(pane, "Layout goal")
+            self.visible("Layout goal")
+            self.capture("top-card")
+            self.reload('tab_bar_position = "bottom"')
+            wait_for(lambda: "╭─" in self.screen().splitlines()[-4], "bottom card")
+            self.capture("bottom-card")
+            self.reload('tab_bar_position = "top"')
+            self.tmux("resize-window", "-t", "verify:0", "-y", "4")
+            wait_for(lambda: "╭─" not in self.screen(), "short-screen line fallback")
+            self.capture("short-screen")
+            self.tmux("resize-window", "-t", "verify:0", "-y", "32")
+            self.visible("╭─")
+            # Remove every fork key: this tests the upstream defaults, not explicit line style.
+            self.reload(defaults=True)
+            wait_for(lambda: "╭─" not in self.screen(), "default line style")
+            assert "CFG" in self.capture("default-line")
+        (self.evidence / "result.json").write_text(
+            json.dumps({"feature": feature, "result": "PASS"})
+        )
+        print("PASS", feature, self.evidence, flush=True)
+
+    def reload(self, extra="", defaults=False):
+        (self.root / "config.toml").write_text(config(extra, defaults))
+        self.log({"config": (self.root / "config.toml").read_text()})
+        self.api("server", "reload-config")
+
+    def cleanup(self):
+        if (self.root / "tmux.sock").exists():
+            try:
+                if list((self.root / "config").glob("*/sessions/probe/herdr.sock")):
+                    self.api("session", "stop", "probe")
+                    wait_for(
+                        lambda: (
+                            not list(
+                                (self.root / "config").glob(
+                                    "*/sessions/probe/herdr.sock"
+                                )
+                            )
+                        ),
+                        "owned Herdr stopped",
+                    )
+            finally:
+                command(
+                    ["tmux", "-S", self.root / "tmux.sock", "kill-server"],
+                    self.env,
+                    check=False,
+                )
+                wait_for(
+                    lambda: (
+                        subprocess.run(
+                            ["tmux", "-S", str(self.root / "tmux.sock"), "has-session"],
+                            env=self.env,
+                            capture_output=True,
+                            check=False,
+                        ).returncode
+                        != 0
+                    ),
+                    "owned tmux stopped",
+                )
+                (self.root / "tmux.sock").unlink(missing_ok=True)
+        for name in ("home", "config", "state", "cache", "work"):
+            shutil.rmtree(self.root / name, ignore_errors=True)
+        (self.root / "config.toml").unlink(missing_ok=True)
+        assert not (self.root / "tmux.sock").exists(), "tmux socket survived cleanup"
+        assert (self.evidence / "actions.jsonl").is_file(), "evidence lost"
+        print("cleaned; evidence kept:", self.evidence, flush=True)
+
+
+def config(extra="", defaults=False):
+    card = (
+        ""
+        if defaults
+        else 'tab_style = "card"\ntab_padding = 1\ntab_detail_token = "tldr"\n'
+    )
+    return (
+        """# Verification scaffolding only; never copy over the user's configuration.
+onboarding = false
+[experimental]
+allow_nested = true
+[update]
+version_check = false
+manifest_check = false
+[terminal]
+default_shell = "/bin/sh"
+shell_mode = "non_login"
+[ui]
+sidebar_start_collapsed = true
+sidebar_collapsed_mode = "hidden"
+mobile_width_threshold = 0
+mouse_capture = true
+"""
+        + card
+        + extra
+        + "\n"
+    )
+
+
+def launch(feature):
+    assert feature in FEATURES, "unknown feature: " + feature
+    binary = Path(
+        os.environ.get("HERDR_VERIFY_BIN", REPO / "target/release/herdr")
+    ).resolve()
+    assert binary.is_file(), "build first or set HERDR_VERIFY_BIN to this fork's build"
+    root = Path(tempfile.mkdtemp(prefix="hfv-", dir="/var/tmp")).resolve()
+    for name in ("evidence", "home", "config", "state", "cache", "work"):
+        (root / name).mkdir()
+    record = {
+        "root": str(root),
+        "feature": feature,
+        "binary": str(binary),
+        "sha256": digest(binary),
+        "path": os.environ["PATH"],
+        "checkout": str(REPO),
+        "revision": command(["git", "-C", REPO, "rev-parse", "HEAD"]).strip(),
+    }
+    (root / "run.json").write_text(json.dumps(record, indent=2))
+    (root / "config.toml").write_text(config())
+    run = Run(root)
+    run.log({"launch": record, "config": config()})
+    try:
+        run.api("config", "check")
+        shell = "exec " + shlex.join([str(binary), "--session", "probe"])
+        run.tmux(
+            "-f",
+            "/dev/null",
+            "new-session",
+            "-d",
+            "-s",
+            "verify",
+            "-x",
+            "170",
+            "-y",
+            "32",
+            "-c",
+            str(root / "work"),
+            shell,
+        )
+        run.visible("╭─")
+        run.doctor()
+        return run
+    except BaseException:
+        try:
+            if (root / "tmux.sock").exists():
+                run.capture("launch-failure")
+        finally:
+            run.cleanup()
+        raise
+
+
+def main():
+    action, *args = sys.argv[1:]
+    if action == "build":
+        subprocess.run(
+            ["cargo", "build", "--release", "--locked"], cwd=REPO, check=True
+        )
+    elif action == "run":
+        run = launch(args[0])
+        try:
+            run.drive()
+        except BaseException:
+            run.capture("failure")
+            raise
+        finally:
+            run.cleanup()
+    elif action == "launch":
+        print(launch(args[0]).root)
+    else:
+        run = Run(args[0])
+        if action == "doctor":
+            run.doctor()
+        elif action == "drive":
+            run.drive()
+        elif action == "capture":
+            run.capture("manual")
+        elif action == "cleanup":
+            run.cleanup()
+        else:
+            raise SystemExit("unknown action: " + action)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        raise SystemExit(
+            "verify-herdr build | run FEATURE | launch FEATURE | doctor/drive/capture/cleanup RUN_DIR"
+        )
+    main()

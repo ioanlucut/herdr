@@ -8,11 +8,15 @@ Branch `feat/tab-bar-rows` is upstream's latest release tag plus these commits:
 
 | Key (`[ui]`) | Default | Effect |
 |---|---|---|
-| `tab_style` | `"line"` | `"card"` draws each tab as a four-row bordered card. The label is on the top border, and the part before ` · ` is bold. The status glyph and the `tab_detail_token` value are inside. Only the border marks the focused card. |
+| `tab_style` | `"line"` | `"card"` draws each tab as a four-row bordered card. The label is on the top border, and the part before ` · ` is bold. The `tab_detail_token` value wraps across two content rows without an added status glyph. Only the border marks the focused card. |
 | `tab_padding` | `2` | Cells on each side of a tab label, for both styles. |
 | `tab_detail_token` | `""` | The pane metadata token shown inside a card, read from the tab's focused agent. |
 
 The defaults keep upstream behavior. The code is in `src/client/shell/tabs.rs` and `src/client/shell/config.rs`, and the config is in `src/config/model.rs`. The tests are in `src/client/shell/tests/tab_rows.rs`. The docs are in `docs/next/website/src/content/docs/configuration.mdx` ("Card tabs") and `config-reference.json`.
+
+## Verify the fork in isolation
+
+Use [verify-herdr-fork](.agents/skills/verify-herdr-fork/SKILL.md). Each feature creates its own private tmux server and home/config/state roots, drives the real TUI through public commands and terminal input, and keeps evidence after cleanup. It needs no live Herdr session, personal plugin, or paid agent call.
 
 ## How it is kept current
 
