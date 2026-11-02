@@ -24,6 +24,61 @@
 
 ---
 
+> [!NOTE]
+> **This is [ioanlucut/herdr](https://github.com/ioanlucut/herdr), a personal fork of [herdrdev/herdr](https://github.com/herdrdev/herdr).** It is upstream's latest release plus **card tabs**. Why it exists and what it adds: [issue #1](https://github.com/ioanlucut/herdr/issues/1) · [`FORK.md`](FORK.md). For the real thing, use [herdr.dev](https://herdr.dev).
+
+## this fork: card tabs
+
+**Thank you, [@ogulcancelik](https://github.com/ogulcancelik), [@JJLiebig](https://github.com/JJLiebig), and every Herdr contributor.** Herdr is the best home I have found for many coding agents at once. This fork exists only because I wanted one more thing from the tab bar, and Herdr's clean code made it a small change. All credit for Herdr goes to its maintainers. Bugs in the card tabs are mine: report them [here](https://github.com/ioanlucut/herdr/issues), not upstream.
+
+With many agents in many tabs, I want to see at a glance **which project each tab is, and what its agent works on now**. A stock tab is one row and holds only a label:
+
+<p align="center"><img src="assets/fork/line-tabs.png" alt="stock herdr: one-row line tabs with labels only" /></p>
+
+With `tab_style = "card"`, each tab is a bordered card. The project is bold on the top border, and the agent's goal wraps across two rows inside. The focused card gets the accent border:
+
+<p align="center"><img src="assets/fork/card-tabs.png" alt="fork: card tabs show each agent's goal across two rows" /></p>
+
+Both captures come from the real TUI, driven by the fork's [isolated verification harness](.agents/skills/verify-herdr-fork/SKILL.md).
+
+### what the fork adds
+
+| change | what you get |
+|---|---|
+| `[ui] tab_style = "card"` | four-row bordered tabs; label on the top border, the part before ` · ` in bold; only the border marks focus |
+| `[ui] tab_detail_token = "tldr"` | the card shows that [pane metadata token](https://herdr.dev/docs/socket-api/) from the tab's focused agent, wrapped across two rows; falls back to the status word (`working`, `blocked`, `idle`) |
+| `[ui] tab_padding = 2` | cells on each side of a tab label, for both tab styles |
+| safe fallbacks | defaults keep upstream behavior; a tab bar too short for four rows keeps line tabs; a tab without an agent keeps an empty card |
+| click anywhere on a card | selects its tab, on either content row |
+| [`verify-herdr-fork`](.agents/skills/verify-herdr-fork/SKILL.md) | drives the real TUI in a private tmux server and keeps terminal + API evidence for four features: card content, focus and navigation, pane metadata, layout and defaults |
+| always current | rebased onto each upstream release tag (now `v0.9.5`), so you lose no upstream fix |
+
+### try it
+
+```toml
+# ~/.config/herdr/config.toml
+[ui]
+tab_style = "card"
+tab_padding = 1
+tab_detail_token = "tldr"
+```
+
+```bash
+# from an agent hook, a plugin, or any shell inside a pane
+herdr pane report-metadata "$HERDR_PANE_ID" --source my-tool --token "tldr=Fix the login redirect"
+```
+
+Build it from source (Rust from `rust-toolchain.toml`, Zig `0.16`):
+
+```bash
+git clone -b feat/tab-bar-rows https://github.com/ioanlucut/herdr && cd herdr
+ZIG=/path/to/zig-0.16 cargo build --release --locked   # binary: target/release/herdr
+```
+
+Stock Herdr warns about the three unknown keys and draws plain tabs, so the same config is safe on both.
+
+---
+
 https://github.com/user-attachments/assets/043ec09f-4bdd-41d5-aee0-8fda6b83e267
 
 **the runtime your coding agents live on.**
