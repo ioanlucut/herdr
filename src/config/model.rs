@@ -1002,6 +1002,9 @@ pub struct UiConfig {
     /// Pane metadata token wrapped across two content rows inside a card tab, read from the tab's
     /// focused agent. Empty shows the status only. Default: empty.
     pub tab_detail_token: String,
+    /// Pane metadata token holding a web link that Ctrl+click on a tab opens, read from the tab's
+    /// focused agent. Empty turns the click off. Default: empty.
+    pub tab_link_token: String,
     /// Ordered entries shown at the right edge of the desktop tab row. Empty by default.
     pub tab_bar_right: Vec<TabBarRightEntryConfig>,
     /// Text inserted between visible right-side tab bar entries. Default: one space.
@@ -1241,6 +1244,7 @@ impl Default for UiConfig {
             tab_style: TabStyleConfig::Line,
             tab_padding: 2,
             tab_detail_token: String::new(),
+            tab_link_token: String::new(),
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
@@ -1566,6 +1570,7 @@ tab_bar_position = "bottom"
 tab_style = "card"
 tab_padding = 1
 tab_detail_token = "tldr"
+tab_link_token = "issue_url"
 tab_bar_right = [
   { type = "zoom" },
   { type = "hostname" },
@@ -1586,6 +1591,7 @@ tab_bar_right_separator = " · "
         assert_eq!(config.ui.tab_style, TabStyleConfig::Card);
         assert_eq!(config.ui.tab_padding, 1);
         assert_eq!(config.ui.tab_detail_token, "tldr");
+        assert_eq!(config.ui.tab_link_token, "issue_url");
         assert_eq!(config.ui.tab_bar_right.len(), 5);
         assert!(matches!(
             config.ui.tab_bar_right[1],

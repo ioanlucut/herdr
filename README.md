@@ -50,6 +50,7 @@ Both captures come from the real TUI, driven by the fork's [isolated verificatio
 | `[ui] tab_padding = 2` | cells on each side of a tab label, for both tab styles |
 | safe fallbacks | defaults keep upstream behavior; a tab bar too short for four rows keeps line tabs; a tab without an agent keeps an empty card |
 | click anywhere on a card | selects its tab, on either content row |
+| `[ui] tab_link_token = "issue_url"` | Ctrl+click on a tab opens the http(s) link in that pane token (an agent's GitHub issue) in the browser; a tab without one is selected as usual |
 | [`verify-herdr-fork`](.agents/skills/verify-herdr-fork/SKILL.md) | drives the real TUI in a private tmux server and keeps terminal + API evidence for four features: card content, focus and navigation, pane metadata, layout and defaults |
 | always current | rebased onto each upstream release tag (now `v0.9.5`), so you lose no upstream fix |
 

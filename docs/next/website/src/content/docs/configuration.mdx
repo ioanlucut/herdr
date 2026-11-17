@@ -344,6 +344,7 @@ Set `tab_style = "card"` to draw every desktop tab as a four-row bordered card. 
 tab_style = "card"
 tab_padding = 1
 tab_detail_token = "tldr"
+tab_link_token = "issue_url"
 ```
 
 ```bash
@@ -357,7 +358,7 @@ herdr pane report-metadata "$HERDR_PANE_ID" --source my-tool --token "tldr=Fix t
 ╰─────────────────────────────╯ ╰───────────────╯
 ```
 
-An empty or unset `tab_detail_token` shows the status word. A tab without an agent keeps an empty card. Card width is capped at 60 text cells; content wraps at word boundaries across two rows and excess text is clipped. `tab_padding` sets the cells on each side of every label for both styles. A tab bar too short for four rows keeps line tabs. A click anywhere on a card selects its tab.
+An empty or unset `tab_detail_token` shows the status word. A tab without an agent keeps an empty card. Card width is capped at 36 text cells; content wraps at word boundaries across two rows, and text that does not fit ends in `…`. `tab_padding` sets the cells on each side of every label for both styles. A tab bar too short for four rows keeps line tabs. A click anywhere on a card selects its tab. With `tab_link_token` set, Ctrl+click on a tab opens the http or https link in that pane token in the browser, as Ctrl+click opens a link inside a pane; a tab without the token is selected as usual.
 
 ### Outer terminal window title
 

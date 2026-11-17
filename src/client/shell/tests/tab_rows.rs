@@ -251,7 +251,7 @@ fn a_long_tldr_wraps_inside_the_card_without_a_status_glyph() {
     let frame = state.compose(200, 20).expect("long detail");
     let rect = state.hits.tabs[0].0;
     // Text cap plus two borders and the padding on each side
-    assert_eq!(rect.width, 60 + 2 + 2);
+    assert_eq!(rect.width, 36 + 2 + 2);
     let mid: String = row_text(&frame, 1)
         .chars()
         .skip(usize::from(rect.x))
@@ -260,6 +260,13 @@ fn a_long_tldr_wraps_inside_the_card_without_a_status_glyph() {
     assert!(mid.contains("word word"), "{mid:?}");
     assert!(row_text(&frame, 2).contains("word word"));
     assert!(!mid.contains('\u{25d0}'));
+    // A goal longer than two rows ends in `…` after its last whole word
+    let last: String = row_text(&frame, 2)
+        .chars()
+        .skip(usize::from(rect.x))
+        .take(usize::from(rect.width))
+        .collect();
+    assert!(last.contains("word\u{2026}"), "{last:?}");
 }
 
 #[test]
@@ -271,10 +278,7 @@ fn a_goal_wraps_at_a_word_boundary_without_losing_unicode() {
             "tab_1",
             "pane_1",
             true,
-            &[(
-                "tldr",
-                "Review the login redirect and preserve all existing behavior 然后验证",
-            )],
+            &[("tldr", "Review the login redirect and keep 然后验证")],
         )];
     });
     let frame = state.compose(200, 20).expect("wrapped goal");
@@ -282,7 +286,7 @@ fn a_goal_wraps_at_a_word_boundary_without_losing_unicode() {
     let first = row_text(&frame, 1);
     let second = row_text(&frame, 2);
     assert!(
-        first.contains("Review the login redirect and preserve all existing behavior"),
+        first.contains("Review the login redirect and keep"),
         "{first:?}"
     );
     assert!(!first.contains('然'), "{first:?}");
@@ -323,6 +327,96 @@ fn a_click_anywhere_on_a_card_selects_the_tab() {
         "{:?}",
         outcome.actions
     );
+}
+
+fn ctrl_click(state: &mut ClientShellState, tab: usize) -> ClientShellInput {
+    let (rect, _) = state.hits.tabs[tab].clone();
+    let click = |kind| {
+        RawInputEvent::Mouse(MouseEvent {
+            kind,
+            column: rect.x + 1,
+            row: rect.y + 1,
+            modifiers: KeyModifiers::CONTROL,
+        })
+    };
+    state.handle_raw_events(vec![
+        click(MouseEventKind::Down(MouseButton::Left)),
+        click(MouseEventKind::Up(MouseButton::Left)),
+    ])
+}
+
+fn opened(outcome: &ClientShellInput) -> Vec<String> {
+    outcome
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            ClientShellAction::OpenSafeWebUrl(url) => Some(url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn focuses_tab(outcome: &ClientShellInput, tab_id: &str) -> bool {
+    outcome.actions.iter().any(|action| matches!(
+        action,
+        ClientShellAction::Endpoint { request, .. }
+            if matches!(&request.method, crate::api::schema::Method::TabFocus(target) if target.tab_id == tab_id)
+    ))
+}
+
+fn linked_state(link_token: &str) -> ClientShellState {
+    let mut config = card_config("tldr");
+    config.tab_link_token = link_token.into();
+    let mut state = ClientShellState::new(config);
+    let mut projected = snapshot();
+    projected.tabs[0].label = "CFG \u{b7} #24 fix".into();
+    second_tab(&mut projected);
+    projected.agents = vec![
+        agent(
+            "tab_1",
+            "pane_1",
+            true,
+            &[
+                ("tldr", "Fix it"),
+                ("issue_url", "https://github.com/me/app/issues/24"),
+            ],
+        ),
+        agent(
+            "tab_2",
+            "pane_2",
+            true,
+            &[("issue_url", "javascript:alert(1)")],
+        ),
+    ];
+    state.set_snapshot(Box::new(projected));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("two cards");
+    state
+}
+
+#[test]
+fn ctrl_click_on_a_tab_opens_its_link_without_selecting_it() {
+    let mut state = linked_state("issue_url");
+    let outcome = ctrl_click(&mut state, 0);
+    assert_eq!(opened(&outcome), ["https://github.com/me/app/issues/24"]);
+    assert!(!focuses_tab(&outcome, "tab_1"), "{:?}", outcome.actions);
+}
+
+#[test]
+fn ctrl_click_on_a_tab_without_a_web_link_selects_it() {
+    let mut state = linked_state("issue_url");
+    let outcome = ctrl_click(&mut state, 1);
+    assert!(opened(&outcome).is_empty());
+    assert!(focuses_tab(&outcome, "tab_2"), "{:?}", outcome.actions);
+}
+
+#[test]
+fn ctrl_click_opens_nothing_without_a_link_token() {
+    let mut state = linked_state("");
+    state.config.tab_link_token.clear();
+    let outcome = ctrl_click(&mut state, 1);
+    assert!(opened(&outcome).is_empty());
+    assert!(focuses_tab(&outcome, "tab_2"), "{:?}", outcome.actions);
 }
 
 #[test]

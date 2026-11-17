@@ -124,6 +124,7 @@ impl ClientShellConfig {
             tab_style: config.ui.tab_style,
             tab_padding: config.ui.tab_padding,
             tab_detail_token: config.ui.tab_detail_token.clone(),
+            tab_link_token: config.ui.tab_link_token.clone(),
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
@@ -354,6 +355,7 @@ impl ClientShellConfig {
                 self.tab_style = ui.tab_style;
                 self.tab_padding = ui.tab_padding;
                 self.tab_detail_token = ui.tab_detail_token.clone();
+                self.tab_link_token = ui.tab_link_token.clone();
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
                 self.agent_panel_sort = ui.agent_panel_sort;

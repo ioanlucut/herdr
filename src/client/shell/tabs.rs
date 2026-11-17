@@ -1,8 +1,9 @@
 use super::*;
 
 const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
-// Text cells inside a card tab at most, so one long TLDR does not push every other tab away
-const CARD_TEXT: u16 = 60;
+// Text cells inside a card tab at most, so one long TLDR does not push every other tab away and
+// about eight cards fit a laptop-wide row
+const CARD_TEXT: u16 = 36;
 const MIN_TAB_STRIP_WIDTH: u16 =
     MIN_TAB_WIDTH + NEW_TAB_WIDTH + TAB_SCROLL_BUTTON_WIDTH.saturating_mul(2);
 
@@ -420,22 +421,52 @@ fn tab_detail(
     if config.tab_detail_token.is_empty() {
         return status;
     }
-    let value = snapshot
+    match tab_token(snapshot, &tab.tab_id, &config.tab_detail_token) {
+        Some(value) if !value.is_empty() => value.to_string(),
+        _ => status,
+    }
+}
+
+// A pane token of the tab's agent, the focused one in a split tab
+pub(in crate::client::shell) fn tab_token<'a>(
+    snapshot: &'a ClientShellSnapshot,
+    tab_id: &str,
+    token: &str,
+) -> Option<&'a str> {
+    snapshot
         .agents
         .iter()
-        .filter(|agent| agent.tab_id == tab.tab_id && agent.agent.is_some())
+        .filter(|agent| agent.tab_id == tab_id && agent.agent.is_some())
         .max_by_key(|agent| agent.focused)
         .and_then(|agent| {
             agent
                 .tokens
                 .iter()
-                .find(|(name, _)| *name == config.tab_detail_token)
+                .find(|(name, _)| name == token)
                 .map(|(_, value)| value.as_str())
-        });
-    match value {
-        Some(value) if !value.is_empty() => value.to_string(),
-        _ => status,
+        })
+}
+
+// The detail as it fits two rows of `width` cells: whole words, the last one dropped for `…` until
+// the rest fits, so a clipped goal still reads as cut rather than as complete
+fn fit_two_rows(detail: &str, width: u16) -> String {
+    let rows = |text: &str| {
+        ratatui::widgets::Paragraph::new(text)
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .line_count(width)
+    };
+    if width == 0 || rows(detail) <= 2 {
+        return detail.to_string();
     }
+    let mut words = detail.split_whitespace().collect::<Vec<_>>();
+    while words.len() > 1 {
+        words.pop();
+        let text = format!("{}…", words.join(" "));
+        if rows(&text) <= 2 {
+            return text;
+        }
+    }
+    crate::ui::truncate_end(detail, usize::from(width) * 2)
 }
 
 // A card tab: the label on the rounded top border, the part before ` · ` (the project) in bold,
@@ -503,7 +534,7 @@ fn draw_card(
         );
     }
     ratatui::widgets::Widget::render(
-        ratatui::widgets::Paragraph::new(detail)
+        ratatui::widgets::Paragraph::new(fit_two_rows(detail, inner))
             .style(base.fg(text))
             .wrap(ratatui::widgets::Wrap { trim: true }),
         Rect::new(rect.x + 1 + pad, y + 1, inner, 2),

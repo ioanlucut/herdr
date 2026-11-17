@@ -1038,6 +1038,12 @@
           "description": "Pane metadata token wrapped across two content rows inside a card tab, read from the tab's focused agent. Set it with herdr pane report-metadata --token NAME=VALUE. Empty or unset shows the status word."
         },
         {
+          "key": "ui.tab_link_token",
+          "type": "string",
+          "default": "\"\"",
+          "description": "Pane metadata token holding an http or https link, read from the tab's focused agent. Ctrl+click on the tab opens it in the browser; a tab without one is selected as usual. Empty or unset turns the click off."
+        },
+        {
           "key": "ui.tab_bar_right",
           "type": "array",
           "default": "[]",

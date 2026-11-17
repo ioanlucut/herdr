@@ -329,6 +329,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # wrapped across two rows inside a card tab. Empty shows the status only.
 # tab_detail_token = ""
 
+# Pane metadata token holding a web link (http or https) that Ctrl+click on a
+# tab opens in the browser. Empty turns the click off.
+# tab_link_token = ""
+
 # Ordered status entries at the right edge of the desktop tab bar.
 # Supported types: zoom, hostname, datetime, text, and command.
 # Hostname, datetime, and command entries resolve on the Herdr server.

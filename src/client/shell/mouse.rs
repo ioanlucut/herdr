@@ -997,6 +997,36 @@ impl ClientShellState {
                 return;
             }
         }
+        // Ctrl+click on a tab opens the web link its agent reports in `tab_link_token`, the same
+        // modifier that opens a link inside a pane; a tab without one is selected as usual
+        if self.config.mouse_capture
+            && self.overlay.is_none()
+            && !self.config.tab_link_token.is_empty()
+            && mouse.kind == MouseEventKind::Down(MouseButton::Left)
+            && mouse
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::CONTROL)
+        {
+            let url = self
+                .hits
+                .tabs
+                .iter()
+                .find(|(rect, _)| super::contains(*rect, point))
+                .and_then(|(_, tab_id)| {
+                    super::render::tab_token(
+                        self.snapshot.as_deref()?,
+                        tab_id,
+                        &self.config.tab_link_token,
+                    )
+                })
+                .filter(|url| crate::app::actions::safe_web_url(url).is_some())
+                .map(str::to_string);
+            if let Some(url) = url {
+                outcome.actions.push(ClientShellAction::OpenSafeWebUrl(url));
+                self.url_click_consumes_until_up = true;
+                return;
+            }
+        }
         if self.visible_endpoint_notice.is_some()
             && mouse.kind == MouseEventKind::Down(MouseButton::Left)
             && super::contains(self.hits.notification_toast, point)

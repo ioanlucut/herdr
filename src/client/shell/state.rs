@@ -24,6 +24,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) tab_style: crate::config::TabStyleConfig,
     pub(super) tab_padding: u16,
     pub(super) tab_detail_token: String,
+    pub(super) tab_link_token: String,
     pub(super) spaces: SpacesSidebarConfig,
     pub(super) agents: crate::config::AgentsSidebarConfig,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
