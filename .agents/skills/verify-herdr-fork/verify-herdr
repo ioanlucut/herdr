@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-FEATURES = ("card-content", "focus-navigation", "metadata", "layout")
+FEATURES = ("card-content", "focus-navigation", "metadata", "layout", "tab-link")
 GOAL = "Build a bigger two-line herdr tab with hover details and status, then fork"
 SOURCE = "verify-fork"
 
@@ -57,7 +57,9 @@ class Run:
         # No inherited HERDR_* routing, user plugins, agent credentials, shell startup files,
         # or tmux options. All child processes receive only this environment.
         self.env = {
-            "PATH": self.record["path"],
+            # The run's `open` comes first, so a tab link click records its URL instead of
+            # opening the person's browser
+            "PATH": str(self.root / "bin") + ":" + self.record["path"],
             "HOME": str(self.root / "home"),
             "XDG_CONFIG_HOME": str(self.root / "config"),
             "XDG_STATE_HOME": str(self.root / "state"),
@@ -248,13 +250,17 @@ class Run:
         self.capture("before")
         if feature == "card-content":
             self.report(pane, GOAL)
-            self.visible("status, then fork")
+            # 36 text cells at most: the goal wraps at words, and what does not fit ends in `…`
+            self.visible("status, then…")
             lines = self.capture("wrapped").splitlines()
-            assert (
-                "Build a bigger two-line herdr tab with hover details and" in lines[1]
-            )
-            assert "status, then fork" in lines[2]
+            assert "Build a bigger two-line herdr tab" in lines[1]
+            assert "with hover details and status, then…" in lines[2]
             assert "╰─" in lines[3]
+            card = lines[0][
+                lines[0].index("╭─ CFG") : lines[0].index("╮", lines[0].index("╭─ CFG"))
+                + 1
+            ]
+            assert len(card) <= 36 + 4, card
             assert not any(c in "".join(lines[1:3]) for c in "×◐✓○")
             styles = json.loads((self.evidence / "wrapped.styles.json").read_text())
             assert styles[0][lines[0].index("CFG")]["bold"], "project is not bold"
@@ -353,6 +359,59 @@ class Run:
             left = text[0].rfind("╭", 0, col)
             right = text[0].find("╮", col)
             assert all(not row[left + 1 : right].strip() for row in text[1:3]), shell
+        elif feature == "tab-link":
+            url = "https://github.com/me/app/issues/24"
+            self.report(pane, "Linked goal")
+            self.api(
+                "pane",
+                "report-metadata",
+                pane,
+                "--source",
+                SOURCE,
+                "--token",
+                "issue_url=" + url,
+            )
+            other, other_pane = self.new_tab("HA · no link")
+            self.report(other_pane, "Unlinked goal")
+            self.visible("Unlinked goal")
+            line = self.screen().splitlines()[0]
+            opened = self.evidence / "opened.txt"
+
+            def focused():
+                return next(
+                    t for t in self.data("tab", "list")["tabs"] if t["focused"]
+                )["tab_id"]
+
+            def click(label, modifier):
+                column = line.index(label) + 1
+                # SGR mouse down/up on the card's first content row; 16 is the Ctrl bit
+                self.tmux(
+                    "send-keys",
+                    "-t",
+                    "verify:0.0",
+                    "-l",
+                    f"\x1b[<{modifier};{column};2M\x1b[<{modifier};{column};2m",
+                )
+
+            # Ctrl+click on the linked tab opens its link and leaves focus where it was
+            click("CFG", 16)
+            wait_for(
+                lambda: opened.exists() and opened.read_text().split() == [url],
+                "link opened",
+            )
+            assert focused() == other, "Ctrl+click on a linked tab changed focus"
+            self.capture("ctrl-click-linked")
+            # Ctrl+click on a tab without a link selects it and opens nothing
+            self.api("tab", "focus", tab)
+            wait_for(lambda: focused() == tab, "CLI focus")
+            click("HA", 16)
+            wait_for(lambda: focused() == other, "Ctrl+click selects an unlinked tab")
+            # A plain click on the linked tab selects it and opens nothing
+            click("CFG", 0)
+            wait_for(lambda: focused() == tab, "plain click selects a linked tab")
+            time.sleep(0.5)
+            assert opened.read_text().split() == [url], opened.read_text()
+            self.capture("plain-click")
         else:
             self.report(pane, "Layout goal")
             self.visible("Layout goal")
@@ -427,6 +486,7 @@ def config(extra="", defaults=False):
         ""
         if defaults
         else 'tab_style = "card"\ntab_padding = 1\ntab_detail_token = "tldr"\n'
+        'tab_link_token = "issue_url"\n'
     )
     return (
         """# Verification scaffolding only; never copy over the user's configuration.
@@ -458,8 +518,11 @@ def launch(feature):
     ).resolve()
     assert binary.is_file(), "build first or set HERDR_VERIFY_BIN to this fork's build"
     root = Path(tempfile.mkdtemp(prefix="hfv-", dir="/var/tmp")).resolve()
-    for name in ("evidence", "home", "config", "state", "cache", "work"):
+    for name in ("evidence", "home", "config", "state", "cache", "work", "bin"):
         (root / name).mkdir()
+    opener = root / "bin" / "open"
+    opener.write_text(f'#!/bin/sh\necho "$1" >> {root}/evidence/opened.txt\n')
+    opener.chmod(0o755)
     record = {
         "root": str(root),
         "feature": feature,

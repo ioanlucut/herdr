@@ -10,6 +10,7 @@ Build once using [Launch](../SKILL.md#launch). From the checkout root, set `V="$
 | [Focus and navigation](focus-navigation.md) | `"$V" run focus-navigation` | CLI focus, prefix keyboard navigation, mouse on both content rows, border focus without background fill |
 | [Pane metadata](metadata.md) | `"$V" run metadata` | set/update/clear, status fallback, focused split agent, empty shell card |
 | [Layout and defaults](layout.md) | `"$V" run layout` | top/bottom bars, narrow-height fallback, upstream line defaults |
+| [Tab link](tab-link.md) | `"$V" run tab-link` | Ctrl+click opens the tab's link token without changing focus, Ctrl+click on an unlinked tab and a plain click select |
 
 Read the matching file before driving. `run` captures actions and terminal/API state, evaluates the feature's assertions, and cleans up even on failure. Report the feature ID and printed evidence directory. A successful feature does not verify another feature or an excluded path.
 

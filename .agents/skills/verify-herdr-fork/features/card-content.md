@@ -5,7 +5,7 @@ A card puts its label on the top border and wraps its goal over two content rows
 ## Sub-features
 
 - `card-frame`: top border, two content rows, bottom border.
-- `card-wrap`: long goal wraps at a word boundary onto row two.
+- `card-wrap`: long goal wraps at a word boundary onto row two, in a card at most 36 text cells wide, and text that does not fit ends in `…`.
 - `card-no-glyph`: neither content row adds a lifecycle glyph.
 - `card-bold`: project abbreviation is bold; task text is not.
 
@@ -20,7 +20,7 @@ Preconditions: a built fork candidate, tmux, Python, and an otherwise empty run 
 - **Fresh instance.** `"$V" run card-content` launches its own TUI.
 - **Label.** The helper runs `tab create --label "CFG · verification"`, reading workspace/tab/pane IDs from API responses.
 - **Content.** It runs `pane report-agent` and `pane report-metadata --token tldr=...` for that pane. The exact goal is `Build a bigger two-line herdr tab with hover details and status, then fork`.
-- **Observe.** `wrapped.txt` shows `Build a bigger two-line herdr tab with hover details and` on content row one and `status, then fork` on row two. The bottom border is terminal row four. Neither content row contains `×`, `◐`, `✓`, or `○`.
+- **Observe.** `wrapped.txt` shows `Build a bigger two-line herdr tab` on content row one and `with hover details and status, then…` on row two; the card is at most 40 cells wide. The bottom border is terminal row four. Neither content row contains `×`, `◐`, `✓`, or `○`.
 - **Style.** Captured ANSI proves `CFG` is bold and `verification` is not. Inspect `wrapped.html` as a visual check.
 - **Side effect.** `actions.jsonl` and `wrapped.json` show the report commands and the stored pane token. `result.json` records `PASS`; cleanup keeps these files.
 
@@ -29,4 +29,4 @@ Preconditions: a built fork candidate, tmux, Python, and an otherwise empty run 
 - The lifecycle and token are public integration fixtures. This does not verify agent detection or AI summarization.
 - Changing terminal width changes wrapping; the harness fixes it at `170×32`.
 - A short goal legitimately leaves the second row blank; the recipe deliberately uses a long goal.
-- Text beyond two content rows is clipped; clipping and Unicode edge cases also have Rust tests in `src/client/shell/tests/tab_rows.rs`.
+- Text beyond two content rows is cut after its last whole word with `…`; cutting and Unicode edge cases also have Rust tests in `src/client/shell/tests/tab_rows.rs`.
