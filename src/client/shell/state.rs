@@ -4,6 +4,9 @@ pub(super) const MIN_TAB_WIDTH: u16 = 8;
 pub(super) const NEW_TAB_WIDTH: u16 = 3;
 pub(super) const WORKSPACE_HEADER_ROWS: u16 = 2;
 const ENDPOINT_ERROR_TIMEOUT_SECS: u64 = 5;
+/// How long a host light/dark switch waits for the host's new colors before panes hear of it anyway.
+pub(super) const HOST_APPEARANCE_COLOR_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClientShellKeybindingSource {
@@ -957,6 +960,10 @@ pub(crate) struct ClientShellState {
     pub(super) pending_input_source_changes: Vec<bool>,
     pub(super) host_appearance: Option<crate::terminal_theme::HostAppearance>,
     pub(super) host_appearance_explicit: bool,
+    /// A host light/dark switch held until the host has answered the color query the switch
+    /// sends, so a pane that queries colors on the switch report gets the new colors, not the old ones.
+    pub(super) pending_host_appearance:
+        Option<(crate::protocol::ClientHostThemeUpdate, std::time::Instant)>,
     pub(super) host_background: Option<crate::terminal_theme::RgbColor>,
     pub(super) local_config_diagnostic: Option<String>,
     pub(super) config_diagnostic: Option<String>,
@@ -1125,6 +1132,7 @@ impl ClientShellState {
             pending_input_source_changes: Vec::new(),
             host_appearance: None,
             host_appearance_explicit: false,
+            pending_host_appearance: None,
             host_background: None,
             config_diagnostic: local_config_diagnostic.clone(),
             local_config_diagnostic,
@@ -1882,11 +1890,29 @@ impl ClientShellState {
         false
     }
 
+    /// Release a held host light/dark switch whose new colors never arrived.
+    pub(crate) fn tick_pending_host_appearance(
+        &mut self,
+        now: std::time::Instant,
+    ) -> Option<ClientMessage> {
+        let (_, deadline) = self.pending_host_appearance.as_ref()?;
+        if now < *deadline {
+            return None;
+        }
+        let (update, _) = self.pending_host_appearance.take()?;
+        Some(ClientMessage::ClientShellHostTheme { update })
+    }
+
     pub(crate) fn timer_delay(&self, now: std::time::Instant) -> std::time::Duration {
         let default = std::time::Duration::from_millis(100);
         self.selection_autoscroll_deadline
             .into_iter()
             .chain(self.selection_repaint_deadline)
+            .chain(
+                self.pending_host_appearance
+                    .as_ref()
+                    .map(|(_, deadline)| *deadline),
+            )
             .min()
             .map(|deadline| deadline.saturating_duration_since(now).min(default))
             .unwrap_or(default)

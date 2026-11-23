@@ -12,6 +12,8 @@ Branch `feat/tab-bar-rows` is upstream's latest release tag plus these commits:
 | `tab_padding` | `2` | Cells on each side of a tab label, for both styles. |
 | `tab_detail_token` | `""` | The pane metadata token shown inside a card, read from the tab's focused agent. |
 
+One fix is not a config key: on a host light/dark switch (mode 2031), the client holds the switch report until the host has answered the color query it sends (at most 1 s), so panes hear of the switch only after the new colors are in. Upstream sent the report first, so a pane app that queries colors on the report, such as Pi's `system` theme, got the old colors and kept them. The code is in `src/client/shell/input.rs` and `src/client/shell/state.rs`; the tests are `host_appearance_update_waits_for_the_new_host_colors` and `held_host_appearance_update_is_sent_when_the_colors_never_arrive` in `src/client/shell/tests/input.rs`.
+
 The defaults keep upstream behavior. The code is in `src/client/shell/tabs.rs` and `src/client/shell/config.rs`, and the config is in `src/config/model.rs`. The tests are in `src/client/shell/tests/tab_rows.rs`. The docs are in `docs/next/website/src/content/docs/configuration.mdx` ("Card tabs") and `config-reference.json`.
 
 ## Verify the fork in isolation

@@ -44,13 +44,16 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
     )]);
     assert!(explicit.repaint);
     assert!(explicit.query_host_theme);
+    // The report waits for the host's new colors (host_appearance_update_waits_for_the_new_host_colors).
+    assert!(explicit.requests.is_empty());
     assert!(matches!(
-        explicit.requests.as_slice(),
-        [ClientMessage::ClientShellHostTheme {
-            update: crate::protocol::ClientHostThemeUpdate::Appearance(
+        state.pending_host_appearance,
+        Some((
+            crate::protocol::ClientHostThemeUpdate::Appearance(
                 crate::protocol::ClientHostAppearance::Dark
-            )
-        }]
+            ),
+            _
+        ))
     ));
     assert_eq!(
         state.host_appearance,
@@ -68,7 +71,9 @@ fn host_appearance_prefers_explicit_reports_over_background_inference() {
         },
     }]);
     assert!(!ignored.repaint);
-    assert_eq!(ignored.requests.len(), 1);
+    // Without a palette query the background is the last color reply, so it releases the held report.
+    let released = !crate::platform::should_query_host_terminal_palette();
+    assert_eq!(ignored.requests.len(), 1 + usize::from(released));
     assert_eq!(
         state.host_appearance,
         Some(crate::terminal_theme::HostAppearance::Dark)
@@ -1050,4 +1055,88 @@ fn committed_text_still_reaches_a_report_all_pane_as_text() {
     assert_eq!(state.mode, ClientShellMode::Terminal);
     let after = state.handle_input_bytes("\u{3042}".as_bytes());
     assert_eq!(pane_text_commits(&after).concat(), "\u{3042}");
+}
+
+#[test]
+fn host_appearance_update_waits_for_the_new_host_colors() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let appearance = |requests: &[ClientMessage]| {
+        requests.iter().position(|request| {
+            matches!(
+                request,
+                ClientMessage::ClientShellHostTheme {
+                    update: crate::protocol::ClientHostThemeUpdate::Appearance(_)
+                }
+            )
+        })
+    };
+
+    let switched = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Dark,
+    )]);
+    assert!(switched.query_host_theme);
+    assert_eq!(
+        appearance(&switched.requests),
+        None,
+        "panes must not hear the switch before the new colors"
+    );
+
+    // The reply to `host_terminal_theme_query_sequence`: foreground, background, then the palette.
+    let mut replies =
+        String::from("\x1b]10;rgb:cece/cece/cece\x1b\\\x1b]11;rgb:0e0e/1414/1515\x1b\\");
+    let palette_queried = crate::platform::should_query_host_terminal_palette();
+    if palette_queried {
+        use std::fmt::Write as _;
+        for index in 0..=u8::MAX {
+            let _ = write!(replies, "\x1b]4;{index};rgb:9595/cbcb/8282\x1b\\");
+        }
+    }
+    let colors = state.handle_input_bytes(replies.as_bytes());
+    let last_color = colors
+        .requests
+        .iter()
+        .rposition(|request| {
+            matches!(
+                request,
+                ClientMessage::ClientShellHostTheme {
+                    update: crate::protocol::ClientHostThemeUpdate::DefaultColor { .. }
+                        | crate::protocol::ClientHostThemeUpdate::PaletteColors(_)
+                }
+            )
+        })
+        .expect("color updates");
+    let report = appearance(&colors.requests).expect("held appearance update");
+    assert_eq!(report, last_color + 1, "appearance follows every new color");
+    assert_eq!(
+        colors.requests[report],
+        ClientMessage::ClientShellHostTheme {
+            update: crate::protocol::ClientHostThemeUpdate::Appearance(
+                crate::protocol::ClientHostAppearance::Dark
+            )
+        }
+    );
+    assert!(state.pending_host_appearance.is_none());
+}
+
+#[test]
+fn held_host_appearance_update_is_sent_when_the_colors_never_arrive() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let switched = state.handle_raw_events(vec![RawInputEvent::HostColorSchemeChanged(
+        crate::terminal_theme::HostAppearance::Light,
+    )]);
+    assert!(switched.requests.is_empty());
+    let (_, deadline) = state.pending_host_appearance.clone().expect("held update");
+
+    assert!(state
+        .tick_pending_host_appearance(deadline - std::time::Duration::from_millis(1))
+        .is_none());
+    assert_eq!(
+        state.tick_pending_host_appearance(deadline),
+        Some(ClientMessage::ClientShellHostTheme {
+            update: crate::protocol::ClientHostThemeUpdate::Appearance(
+                crate::protocol::ClientHostAppearance::Light
+            )
+        })
+    );
+    assert!(state.pending_host_appearance.is_none());
 }

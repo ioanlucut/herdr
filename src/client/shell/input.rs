@@ -72,6 +72,25 @@ fn host_theme_update(event: &RawInputEvent) -> Option<crate::protocol::ClientHos
     }
 }
 
+/// The last reply to the host color query: palette color 255 when the palette is queried,
+/// else the background (`host_terminal_theme_query_sequence` asks for 10, 11, then 4;0..255).
+fn is_last_host_color_reply(
+    update: &crate::protocol::ClientHostThemeUpdate,
+    palette_queried: bool,
+) -> bool {
+    use crate::protocol::{ClientHostDefaultColorKind, ClientHostThemeUpdate};
+    match update {
+        ClientHostThemeUpdate::PaletteColors(colors) => {
+            palette_queried && colors.iter().any(|(index, _)| *index == u8::MAX)
+        }
+        ClientHostThemeUpdate::DefaultColor {
+            kind: ClientHostDefaultColorKind::Background,
+            ..
+        } => !palette_queried,
+        _ => false,
+    }
+}
+
 fn push_host_theme_update(
     requests: &mut Vec<ClientMessage>,
     update: crate::protocol::ClientHostThemeUpdate,
@@ -238,7 +257,30 @@ impl ClientShellState {
                 continue;
             }
             if let Some(update) = host_theme_update(&event) {
-                push_host_theme_update(&mut outcome.requests, update);
+                if matches!(
+                    update,
+                    crate::protocol::ClientHostThemeUpdate::Appearance(_)
+                ) {
+                    // The host switches its colors around its light/dark report; the query this
+                    // switch sends answers with the new ones. Hold the report until then.
+                    self.pending_host_appearance = Some((
+                        update,
+                        std::time::Instant::now() + HOST_APPEARANCE_COLOR_WAIT,
+                    ));
+                } else {
+                    let last_reply = is_last_host_color_reply(
+                        &update,
+                        crate::platform::should_query_host_terminal_palette(),
+                    );
+                    push_host_theme_update(&mut outcome.requests, update);
+                    if last_reply {
+                        if let Some((held, _)) = self.pending_host_appearance.take() {
+                            outcome
+                                .requests
+                                .push(ClientMessage::ClientShellHostTheme { update: held });
+                        }
+                    }
+                }
             }
             match event {
                 RawInputEvent::Key(key) => {
